@@ -10,12 +10,14 @@ import sys
 
 class Main:
 
+#Initialized the program, prompting for name and retrieves income for the user
   def __init__(self):
     self.name = input("Please enter your first name: ")
     self.income = self.get_valid_income()
     self.bill_account = exp.Expenses(self.income)
     self.cli_menu()
 
+#Generate the menu of options, replays until exit is chosen. Options call on the methods below.
   def cli_menu(self):
     menu_options = {
         "1": "Manage monthly expenses",
@@ -35,7 +37,7 @@ class Main:
       elif selection == '2':
         self.reset_income()
       elif selection == '3':
-        print(f"\n--{self.name}'s Budget--")
+        print(f"\n-- {self.name}'s Budget --")
         self.manage_budget()
       elif selection == '4':
         self.write_to_csv()
@@ -51,9 +53,11 @@ class Main:
       else:
         print("Invalid selection, please try again.")
 
+  #Allows the user to reset their income if they desire
   def reset_income(self):
     self.income = self.get_valid_income()
 
+  #Checks to ensure the income is a valid number
   def get_valid_income(self):
     while True:
       try:
@@ -65,13 +69,15 @@ class Main:
       except ValueError:
         print("Invalid input. Please enter a valid number.")
 
+  #Allows user to enter bills and displays the bills after they are entered, as well as total amount expenses
   def manage_expenses(self):
     self.bill_account.create_bills()
     print("\n-- Monthly Expenses --")
     for category, amount in self.bill_account.get_bills().items():
       print(f"{category}: ${amount}")
     print("Total Expenses: $" + str(self.bill_account.get_total_expenses()))
-
+    
+   #Calculates and displays the income, expenses, and remainder to user
   def manage_budget(self):
     self.budget = bud.Budget(self.income)
     print("Monthly Income: " + str(self.budget.get_income()))
@@ -79,12 +85,14 @@ class Main:
     remaining_balance = self.income - self.bill_account.get_total_expenses()
     print("Remaining Balance: $" + str(remaining_balance))
 
+   #Creates instances of piechart and histogram, displaying the data visually 
   def visualize_data(self):
     chart = pch.Piechart(self.bill_account.get_bills())
     chart.display_pie_chart()
     histogram = his.Histogram(self.bill_account.get_bills())
     histogram.display_histogram()
 
+  #Writes data to a csv file, using the expense dictionary. Also, add total expense, remainder, and date generated.
   def write_to_csv(self):
     with open('spendingtracker.csv', mode='w', newline='') as file:
       writer = csv.writer(file)
@@ -98,11 +106,13 @@ class Main:
           ['Total Expenses', 'Income', 'Remaining Balance', 'Date'])
       writer.writerow([total_expenses, self.income, remainder, current_date])
 
+  #Displays the budget anaylsis by call running statistics method and print results 
   def display_budget_analysis(self):
     print('\n--Budget Analysis--')
     analysis = self.run_statistics()
     print("\n".join(analysis))
 
+  #Runs the calculation for max, mean, std dev, variation, and return the values in a print f statement. Also call budget analysis method to return recommendation based on stats.
   def run_statistics(self):
     bills = self.bill_account.get_bills()
     if not bills:
@@ -121,13 +131,14 @@ class Main:
     analysis = self.budget_analysis(max_expense, avg_expense, std_deviation,
                                     cv)
     return [
-        f"Max Expense: ${max_expense}  - {max_category}",
-        f"Min Expense: ${min_expense}  - {min_category}",
+        f"Max Expense: ${max_expense} - {max_category}",
+        f"Min Expense: ${min_expense} - {min_category}",
         f"Avg Expense: ${avg_expense:.2f}",
         f"Standard Deviation: {std_deviation:.2f}",
         f"Coefficient of Variation: {cv:.2f}%", analysis
     ]
 
+ # This method take the date for statistics and provided recommendation based on hardcoded cuttoff values for each stat. Runs test on each category, then write the results into a text file.
   def budget_analysis(self, max_expense, avg_expense, std_deviation, cv):
     analysis_message = []
     if not hasattr(self, 'income') or self.income <= 0:
@@ -181,7 +192,7 @@ class Main:
     self.write_analysis_to_file(analysis_message)
     return "\n".join(analysis_message)
 
-  def write_analysis_to_file(self, analysis_message):
+# This is were the analysis in the previous method is read and writen it to an external file, then adds a date time stamp and provides a readable format  def write_analysis_to_file(self, analysis_message):
     with open('budget_analysis.txt', 'w') as file:
       file.write("Budget Analysis Report\n")
       file.write(

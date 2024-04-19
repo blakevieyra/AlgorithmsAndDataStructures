@@ -1,5 +1,6 @@
 class Expenses:
 
+  # Initialized expenses with monthly income and create dictionary with categories and their dollar values
   def __init__(self, income):
     self.income = income
     self.bills = {
@@ -19,10 +20,12 @@ class Expenses:
         "Entertainment": 0,
         "Savings": 0
     }
-
+    
+  # Getter for dictionary with categories and their dollar values
   def get_bills(self):
     return self.bills
 
+  # Allow user to input dollar vale for eack category in the dictionary. Checks for valid input first and while valid, continues to the categories are assigned an expense
   def create_bills(self):
     print("Please enter dollar amounts for the following categories:\n")
     for key in self.bills:
@@ -35,6 +38,7 @@ class Expenses:
           print("Please enter a valid number for expense.")
     return self.bills
 
+  # Getter for expenses per the dictionary. Add the values from the bills dictionary and return the total expense amount
   def get_total_expenses(self):
     total_expenses = 0
     for k, v in self.bills.items():

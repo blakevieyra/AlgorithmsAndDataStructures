@@ -1,15 +1,16 @@
 Budget Analysis Report
-Report generated on: 2024-04-19 06:22:29
+Report generated on: 2024-04-19 10:58:04
 
 High variability in expenses. Consider stabilizing spending.
 Your expenses show significant month-to-month variation.
 Your highest expense is significantly higher than your average expenses. Review if such high expenses are necessary or can be reduced.
 Warning: Your highest single expense constitutes a large portion of your income. Ensure this is sustainable.
-Alert: Water expenses take up more than 10% of your income. Consider budget adjustments.
-Alert: Gas expenses take up more than 10% of your income. Consider budget adjustments.
-Alert: Insurance expenses take up more than 10% of your income. Consider budget adjustments.
-Alert: Subscriptions expenses take up more than 10% of your income. Consider budget adjustments.
-Alert: Groceries expenses take up more than 10% of your income. Consider budget adjustments.
-Alert: Dining Out expenses take up more than 10% of your income. Consider budget adjustments.
-Consider reducing Savings, which accounts for 50.19% of your total expenses.
-Alert: Savings expenses take up more than 10% of your income. Consider budget adjustments.
+Alert: Electricity expenses take up more than 10% of your income. Consider budget adjustments.
+Consider reducing Phone, which accounts for 28.48% of your total expenses.
+Alert: Phone expenses take up more than 10% of your income. Consider budget adjustments.
+Consider reducing Car, which accounts for 21.92% of your total expenses.
+Alert: Car expenses take up more than 10% of your income. Consider budget adjustments.
+Consider reducing Credit Cards, which accounts for 22.45% of your total expenses.
+Alert: Credit Cards expenses take up more than 10% of your income. Consider budget adjustments.
+Consider reducing Entertainment, which accounts for 15.37% of your total expenses.
+Alert: Entertainment expenses take up more than 10% of your income. Consider budget adjustments.

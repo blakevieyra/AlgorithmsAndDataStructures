@@ -1,18 +1,18 @@
 Expense Category,Amount
-Rent/Mortgage,34
-Electricity,234
-Water,4
-Internet,5234
-Phone,12
-Gas,4
-Cable,52
-Car,34
-Insurance,234
-Subscriptions,1
-Credit Cards,23452
-Groceries,343
-Dining Out,231
-Entertainment,435
-Savings,2
+Rent/Mortgage,0
+Electricity,45.0
+Water,0
+Internet,0
+Phone,56.0
+Gas,0
+Cable,0
+Car,0
+Insurance,0
+Subscriptions,67.0
+Credit Cards,0
+Groceries,0
+Dining Out,0
+Entertainment,56.0
+Savings,0
 Total Expenses,Income,Remaining Balance,Date
-30306,4000.0,-26306.0,2024-04-19 12:21:10
+224.0,1000,776.0,2024-04-21 12:59:50

@@ -3,10 +3,61 @@
 <head>
     <meta charset="UTF-8">
     <title>View Budget</title>
-    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
+     <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">Financial Checkup</a>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">Set Income</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/view_budget">View Budget</a>
+                    </li>
+                                      <li class="nav-item">
+                        <a class="nav-link" href="/manage_expenses">Manage Expenses</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/budget_analysis">Budget Analysis</a>
+                    </li>
+  
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            Account
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="navbarDropdown">
+                            <form action="{{ url_for('logout') }}" method="post">
+                                <button type="submit" class="btn btn-danger">Logout</button>
+                            </form>
+                        </ul>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            Account
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="navbarDropdown">
+                            <form class="px-4 py-3" method="post" action="/login">
+                                <div class="mb-3">
+                                    <label for="username" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="username" name="username" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="password" class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="password" name="password" required>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Sign in</button>
+                            </form>
+                            <div class="dropdown-divider"></div>
+                            <a class="dropdown-item" href="/register">New around here? Sign up</a>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
     <div class="container mt-5">
         <h1 class="mb-3">Budget Overview</h1>
         <div class="card">
@@ -15,21 +66,17 @@
                 <p class="card-text"><strong>Monthly Income:</strong> ${{ '%0.2f' | format(budget.income) }}</p>
                 <p class="card-text"><strong>Total Expenses:</strong> ${{ '%0.2f' | format(budget.expenses) }}</p>
                 <p class="card-text"><strong>Remaining Balance:</strong> ${{ '%0.2f' | format(budget.balance) }}</p>
+                <a href="/generate_spreadsheet" class="btn btn-primary">Download Spreadsheet</a>
             </div>
-            <a href="/generate_spreadsheet" class="btn btn-primary">Download Spreadsheet</a>
-
         </div>
-
         <div class="mt-4">
             <a href="/" class="btn btn-primary">Home</a>
+            <a href="/" class="btn btn-secondary">Set Income</a>
             <a href="/manage_expenses" class="btn btn-secondary">Manage Expenses</a>
-            <a href="/set_income" class="btn btn-secondary">Set Income</a>
             <a href="/generate_spreadsheet" class="btn btn-secondary">Generate Spreadsheet</a>
             <a href="/budget_analysis" class="btn btn-secondary">Budget Analysis</a>
         </div>
     </div>
-
-    <!-- Bootstrap Bundle with Popper -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

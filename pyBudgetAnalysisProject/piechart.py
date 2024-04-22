@@ -40,4 +40,5 @@ class Piechart:
       # Ensure size of pie is correct and add the Title to the chart
       plt.axis('equal')
       plt.title(f'My Monthly Budget - Total Expenses: ${total_expenses:.2f}')
+      plt.savefig('piechart.png')  # Save the plot as a PNG file
       plt.show()

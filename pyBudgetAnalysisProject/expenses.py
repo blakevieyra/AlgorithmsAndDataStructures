@@ -3,7 +3,7 @@ class Expenses:
     def __init__(self, income):
         self.income = income
         self.bills = {
-            "Rent/Mortgage": 0,
+            "Housing": 0,
             "Electricity": 0,
             "Water": 0,
             "Internet": 0,
@@ -17,7 +17,10 @@ class Expenses:
             "Groceries": 0,
             "Dining Out": 0,
             "Entertainment": 0,
-            "Savings": 0
+            "Savings": 0,
+            "Loan Payments": 0,
+            "Etc": 0,
+            
         }
 
     def get_bills(self):

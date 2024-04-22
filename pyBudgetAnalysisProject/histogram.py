@@ -47,6 +47,6 @@ class Histogram:
           color='black')
 
   # Readjust the layout to ensure tight formatting 
-    plt.tight_layout(
-    )  
+    plt.tight_layout()
+    plt.savefig('histogram.png')  # Save the plot as a PNG file  
     plt.show()

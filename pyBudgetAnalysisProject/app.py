@@ -9,11 +9,13 @@ from histogram import Histogram
 from main import Main
 from piechart import Piechart
 from datetime import datetime
+import matplotlib
+from main import run_statistics, write_to_csv
 
+matplotlib.use('Agg')  # Use a non-GUI backend to prevent chart popups
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
-main_app = Main("User", 0)
 
 def get_db():
     if 'db' not in g:
@@ -42,10 +44,15 @@ def login():
         user = cursor.fetchone()
         if user and bcrypt.checkpw(password.encode('utf-8'), user['password_hash']):
             session['logged_in'] = True
-            session['user_id'] = user['id']  # Store user ID in session
+            session['user_id'] = user['id']
+            cursor.execute("SELECT amount FROM income WHERE user_id = ?", (user['id'],))
+            income = cursor.fetchone()
+            if income:
+                session['income'] = income['amount']
+                
             return redirect(url_for('manage_expenses'))
         else:
-            return render_template('login.html', error='Invalid username or password.')
+            flash('Invalid username or password.', 'error')
     return render_template('login.html')
 
 
@@ -122,27 +129,37 @@ def logout():
     session.clear()  # Clears all data in session, effectively logging out the user
     flash('You have been logged out successfully.')
     return redirect(url_for('index'))
-
-from datetime import datetime
+                    
 
 @app.route('/set_income', methods=['POST'])
 def set_income():
     user_id = session.get('user_id')
-    income = request.form.get('income', type=float)
+    if not user_id:
+        flash('Please log in to continue.', 'error')
+        return redirect(url_for('login'))
 
-    if income and income > 0:
+    try:
+        income = float(request.form.get('income', 0))  # Default to 0 if not provided
+        if income <= 0:
+            raise ValueError("Income must be a positive number.")
+
         db = get_db()
         cursor = db.cursor()
         current_date = datetime.now().strftime('%Y-%m-%d')
+        # Consider using an UPDATE statement if only keeping track of the latest income
         cursor.execute('''
             INSERT INTO income (user_id, date, amount)
-            VALUES (?, ?, ?);
-            ''', (user_id, current_date, income))
+            VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET amount = excluded.amount;
+        ''', (user_id, current_date, income))
         db.commit()
-        db.close()
-        flash('Income updated successfully!')
-    else:
-        flash('Invalid input. Please enter a valid positive number.')
+        flash('Income updated successfully!', 'success')
+    except ValueError as e:
+        flash(str(e), 'error')
+    except Exception as e:
+        flash('Failed to update income due to a system error.', 'error')
+    finally:
+        if db:
+            db.close()
 
     return redirect(url_for('index'))
 
@@ -157,68 +174,138 @@ def download_file():
 @app.route('/generate_spreadsheet')
 def generate_spreadsheet():
     try:
-        filename = 'spendingtracker.csv'
-        main_app.write_to_csv(filename)
-        return send_file(filename, as_attachment=True)
+        user_id = session.get('user_id')
+        if not user_id:
+            flash('User not logged in.')
+            return redirect(url_for('login'))
+
+        db = get_db()
+        cursor = db.cursor()
+
+        # Retrieve expenses data from the database using the user ID
+        cursor.execute('SELECT category, amount FROM expenses WHERE user_id = ?', (user_id,))
+        expenses_data = cursor.fetchall()
+
+        # Generate the CSV content
+        csv_content = "Category,Amount\n"
+        for expense in expenses_data:
+            csv_content += f"{expense['category']},{expense['amount']}\n"
+
+        # Close the database connection
+        cursor.close()
+        db.close()
+
+        # Send the generated CSV file as a response
+        response = make_response(csv_content)
+        response.headers['Content-Disposition'] = 'attachment; filename=spendingtracker.csv'
+        response.mimetype = 'text/csv'
+        return response
     except Exception as e:
         flash(f"Error generating spreadsheet: {str(e)}")
         return redirect(url_for('index'))
-
-@app.route('/budget_analysis')
-def budget_analysis():
-    try:
-        analysis_results = main_app.run_statistics()
-        if analysis_results:
-            return render_template('budget_analysis.html', analysis=analysis_results)
-        else:
-            flash("No expense data available for analysis.")
-            return redirect(url_for('manage_expenses'))
-    except Exception as e:
-        flash(f"Error generating analysis: {e}")
-        return redirect(url_for('index'))
-
+    
 
 @app.route('/histogram')
 def histogram():
-    buf = io.BytesIO()
-    expenses = main_app.bill_account.get_bills()
-    Histogram(expenses).display_histogram()
-    plt.savefig(buf, format='png')
-    plt.close()
-    buf.seek(0)
-    return send_file(buf, mimetype='image/png')
-
-@app.route('/piechart')
-def piechart():
-    buf = io.BytesIO()
-    expenses = main_app.bill_account.get_bills()
-    Piechart(expenses).display_pie_chart()
-    plt.savefig(buf, format='png')
-    plt.close()
-    buf.seek(0)
-    return send_file(buf, mimetype='image/png')
-
-@app.route('/save_expenses', methods=['POST'])
-def save_expenses():
-    user_id = session.get('user_id')  # Assuming user ID is stored in the session
+    user_id = session.get('user_id')
     if not user_id:
-        return "User not logged in", 401  # Unauthorized
+        flash('User not logged in.')
+        return redirect(url_for('login'))
 
-    expenses = request.json
     db = get_db()
     cursor = db.cursor()
+
     try:
-        for category, amount in expenses.items():
-            cursor.execute("INSERT INTO expenses (user_id, category, amount) VALUES (?, ?, ?)", (user_id, category, amount))
-        db.commit()
-        return "Expenses saved successfully!", 200
+        # Retrieve expenses for the user from the database
+        cursor.execute('SELECT category, amount FROM expenses WHERE user_id = ?', (user_id,))
+        expenses = cursor.fetchall()
+
+        if not expenses:
+            flash('No expenses found for the user.')
+            return redirect(url_for('budget_analysis'))
+
+        buf = io.BytesIO()
+        Histogram(expenses).display_histogram()
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        plt.close()
+        buf.seek(0)
+        return send_file(buf, mimetype='image/png', as_attachment=False)
     except Exception as e:
-        db.rollback()
-        return f"An error occurred: {str(e)}", 500
+        flash(f"Error generating histogram: {str(e)}")
+        return redirect(url_for('budget_analysis'))
     finally:
         cursor.close()
         db.close()
 
+@app.route('/piechart')
+def piechart():
+    user_id = session.get('user_id')
+    if not user_id:
+        flash('User not logged in.')
+        return redirect(url_for('login'))
+
+    db = get_db()
+    cursor = db.cursor()
+
+    try:
+        # Retrieve expenses for the user from the database
+        cursor.execute('SELECT category, amount FROM expenses WHERE user_id = ?', (user_id,))
+        expenses = cursor.fetchall()
+
+        if not expenses:
+            flash('No expenses found for the user.')
+            return redirect(url_for('budget_analysis'))
+
+        buf = io.BytesIO()
+        Piechart(expenses).display_pie_chart()
+        plt.savefig(buf, format='png')
+        plt.close()
+        buf.seek(0)
+        return send_file(buf, mimetype='image/png', as_attachment=False)
+    except Exception as e:
+        flash(f"Error generating pie chart: {str(e)}")
+        return redirect(url_for('budget_analysis'))
+    finally:
+        cursor.close()
+        db.close()
+
+@app.route('/budget_analysis')
+def budget_analysis():
+    user_id = session.get('user_id')
+    if not user_id:
+        flash('User not logged in.')
+        return redirect(url_for('login'))
+
+    db = get_db()
+    cursor = db.cursor()
+
+    budget_data = {'income': 0, 'expenses': 0}  # Default empty data
+    expenses = []
+    balance = 0
+    analysis_results = []
+
+    try:
+        cursor.execute('SELECT income, expenses FROM budget WHERE user_id = ?', (user_id,))
+        budget = cursor.fetchone()
+
+        if budget:
+            budget_data = budget
+            balance = budget['income'] - budget['expenses']
+
+        cursor.execute('SELECT category, amount FROM expenses WHERE user_id = ? ORDER BY amount DESC', (user_id,))
+        expenses = cursor.fetchall()
+
+        # Here you should handle if no analysis results exist:
+        analysis_results = run_statistics() if run_statistics() else ["No detailed analysis data available."]
+
+    except Exception as e:
+        flash(f"Error during analysis: {e}")
+
+    finally:
+        cursor.close()
+        db.close()
+
+    return render_template('budget_analysis.html', budget=budget_data, balance=balance, expenses=expenses, analysis=analysis_results)
 
 @app.route('/view_budget')
 def view_budget():
@@ -243,10 +330,34 @@ def view_budget():
         # Calculate the overall balance
         balance = income - expenses
 
+        # Calculate the expense ratio and determine the grade
+        if income > 0:
+            expense_ratio = (expenses / income) * 100
+        else:
+            expense_ratio = 0  # Avoid division by zero
+
+        # Define the grading logic
+        if expense_ratio <= 50:
+            grade = 'A+'
+        elif expense_ratio <= 70:
+            grade = 'A'
+        elif expense_ratio <= 90:
+            grade = 'A-'
+        elif expense_ratio <= 110:
+            grade = 'B'
+        elif expense_ratio <= 130:
+            grade = 'C'
+        elif expense_ratio <= 150:
+            grade = 'D'
+        else:
+            grade = 'F-'
+
+        # Include grade in the budget data dictionary
         budget_data = {
             'income': income,
             'expenses': expenses,
-            'balance': balance
+            'balance': balance,
+            'grade': grade  # Include the grade in the budget data sent to the template
         }
 
         return render_template('view_budget.html', budget=budget_data)
@@ -273,40 +384,110 @@ def manage_expenses():
 
     db = get_db()
     cursor = db.cursor()
-    cursor.execute('SELECT DISTINCT category FROM expenses WHERE user_id = ?', (user_id,))
-    categories = [row['category'] for row in cursor.fetchall()]
+
+    # Fetch existing expenses to display and potentially update
+    cursor.execute('SELECT category, amount FROM expenses WHERE user_id = ?', (user_id,))
+    categories_with_amounts = {row['category']: row['amount'] for row in cursor.fetchall()}
 
     if request.method == 'POST':
+        # Get data from the form
         categories_post = request.form.getlist('categories[]')
         amounts_post = request.form.getlist('amounts[]')
 
+        # Convert amounts to float and prepare data for insertion or update
         try:
-            for category, amount in zip(categories_post, map(float, amounts_post)):
+            updated_data = [(user_id, category, float(amount)) for category, amount in zip(categories_post, amounts_post)]
+            for data in updated_data:
                 cursor.execute('''
                     INSERT INTO expenses (user_id, category, amount)
                     VALUES (?, ?, ?)
                     ON CONFLICT(user_id, category)
                     DO UPDATE SET amount = excluded.amount;
-                ''', (user_id, category, amount))
+                ''', data)
             db.commit()
+            update_budget(user_id)
             flash('Expenses updated successfully!')
+            # Update the local dictionary to reflect the new amounts immediately after saving
+            categories_with_amounts = {data[1]: data[2] for data in updated_data}
         except Exception as e:
             db.rollback()
-            flash(f"An error occurred while updating expenses: {str(e)}")
-        finally:
-            cursor.close()
+            flash(f"An error occurred while updating expenses: {e}")
+
+        # Redirect to clear POST data and refresh the page
         return redirect(url_for('manage_expenses'))
 
-    # Handling GET request or following the POST redirect
-    cursor = db.cursor()  # Necessary to reinitialize the cursor after it's closed
-    cursor.execute('SELECT category, sum(amount) as total_amount FROM expenses WHERE user_id = ? GROUP BY category', (user_id,))
-    expenses_data = cursor.fetchall()
-    db.close()  # Close the database after completing the queries
+    # Calculate total expenses for display
+    total_expenses = sum(categories_with_amounts.values())
 
-    categories_with_amounts = {exp['category']: exp['total_amount'] for exp in expenses_data if expenses_data}
-    total_expenses = sum(exp['total_amount'] for exp in expenses_data) if expenses_data else 0.0
+    cursor.close()
+    db.close()
 
     return render_template('manage_expenses.html', categories=categories_with_amounts, total_expenses=total_expenses)
 
+@app.route('/save_expenses', methods=['POST'])
+def save_expenses():
+    user_id = session.get('user_id')
+    if not user_id:
+        flash('User not logged in. Please login to continue.', 'error')
+        return redirect(url_for('login'))
+
+    try:
+        db = get_db()
+        cursor = db.cursor()
+
+        # Assuming you're sending categories and amounts as lists from the form
+        categories = request.form.getlist('categories[]')
+        amounts = request.form.getlist('amounts[]')
+
+        if not categories or not amounts:
+            flash('No expenses data provided.', 'error')
+            return redirect(url_for('manage_expenses'))
+
+        for category, amount in zip(categories, map(float, amounts)):
+            cursor.execute('''
+                INSERT INTO expenses (user_id, category, amount, date)
+                VALUES (?, ?, ?, DATE('now'))
+                ''', (user_id, category, amount))
+        db.commit()
+        update_budget(user_id)
+        flash('Expenses saved successfully!', 'success')
+
+    except sqlite3.IntegrityError:
+        db.rollback()
+        flash('Database error occurred. Try again.', 'error')
+    except ValueError:
+        db.rollback()
+        flash('Invalid amount entered. Please enter a valid number.', 'error')
+    finally:
+        cursor.close()
+    return redirect(url_for('budget_analysis'))
+
+def update_budget(user_id):
+    db = get_db()
+    cursor = db.cursor()
+
+    try:
+        # Calculate total expenses
+        cursor.execute('SELECT SUM(amount) AS total_expenses FROM expenses WHERE user_id = ?', (user_id,))
+        total_expenses = cursor.fetchone()['total_expenses'] or 0
+
+        # Fetch current income
+        cursor.execute('SELECT amount FROM income WHERE user_id = ?', (user_id,))
+        current_income = cursor.fetchone()['amount'] or 0
+
+        # Calculate new budget or available income
+        new_available_income = current_income - total_expenses
+
+        # Update the income table or a budget table if exists
+        cursor.execute('UPDATE income SET amount = ? WHERE user_id = ?', (new_available_income, user_id))
+        db.commit()
+        flash('Budget updated successfully!', 'success')
+    except Exception as e:
+        db.rollback()
+        flash(f"An error occurred while recalculating the budget: {e}", 'error')
+    finally:
+        cursor.close()
+        db.close()
+        
 if __name__ == '__main__':
     app.run(debug=True)

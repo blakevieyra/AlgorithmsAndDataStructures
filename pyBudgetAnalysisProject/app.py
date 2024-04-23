@@ -7,19 +7,26 @@ import secrets
 import io
 from matplotlib import pyplot as plt
 from histogram import Histogram
+from linechart import LineChart
 from main import Main
 from piechart import Piechart
 from datetime import datetime
 import matplotlib
 from statistics import mean, stdev
 import logging
+from flask_wtf.csrf import CSRFProtect
+from flask_wtf.csrf import generate_csrf
+
+
+from scatterplot import ScatterPlot
 
 logging.basicConfig(level=logging.INFO)
 
 matplotlib.use('Agg')  
 
 app = Flask(__name__)
-app.secret_key = secrets.token_hex(16)
+app.secret_key = os.getenv('FLASK_SECRET_KEY', secrets.token_hex(16))
+csrf = CSRFProtect(app)
 
 def get_db():
     if 'db' not in g:
@@ -32,11 +39,60 @@ def close_db(exception=None):
     db = g.pop('db', None)
     if db is not None:
         db.close()
+        
+@app.context_processor
+def inject_user():
+    user_id = session.get('user_id')
+    if user_id:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+        user = cursor.fetchone()
+        if user:
+            return {'user': user['username']}  # Passing username or any other required user details
+    return {}
 
 @app.route('/')
 def index():
-    return render_template('index.html', name="Home Page")
+    return render_template('index.html', csrf_token=generate_csrf())
 
+
+@app.route('/view_budget')
+def view_budget():
+    user_id = session.get('user_id')
+    if not user_id:
+        flash('User not logged in. Please login to continue.')
+        return redirect(url_for('login'))
+
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute('SELECT amount FROM income WHERE user_id = ? ORDER BY date DESC LIMIT 1', (user_id,))
+        income_row = cursor.fetchone()
+        income = income_row['amount'] if income_row else 0.0  # Corrected to call fetchone() once
+
+        cursor.execute('SELECT SUM(amount) AS total_expenses FROM expenses WHERE user_id = ?', (user_id,))
+        expenses_row = cursor.fetchone()
+        expenses = expenses_row['total_expenses'] if expenses_row else 0.0
+
+        balance = income - expenses
+        expense_ratio = (expenses / income * 100) if income > 0 else 0
+        grade = calculate_grade(expense_ratio)
+
+        budget_data = {
+            'income': income,
+            'expenses': expenses,
+            'balance': balance,
+            'grade': grade,
+            'expense_ratio': expense_ratio
+        }
+        return render_template('view_budget.html', budget=budget_data)
+    except Exception as e:
+        flash(f"An error occurred while fetching budget data: {e}")
+    finally:
+        cursor.close()
+        db.close()
+        
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -47,18 +103,12 @@ def login():
         cursor.execute("SELECT id, password_hash FROM users WHERE username = ?", (username,))
         user = cursor.fetchone()
         if user and bcrypt.checkpw(password.encode('utf-8'), user['password_hash']):
-            session['logged_in'] = True
             session['user_id'] = user['id']
-            cursor.execute("SELECT amount FROM income WHERE user_id = ?", (user['id'],))
-            income = cursor.fetchone()
-            if income:
-                session['income'] = income['amount']
-                
+            session['username'] = username  # Optionally store more user details in session
             return redirect(url_for('view_budget'))
         else:
             flash('Invalid username or password.', 'error')
     return render_template('login.html')
-
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -84,7 +134,7 @@ def register():
         if cursor.fetchone():
             db.close()
             flash('Username already exists. Please choose another username.')
-            return redirect(url_for('register'))
+            return redirect(url_for('index'))
 
         # Insert the new user
         cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, hashed_password))
@@ -124,9 +174,9 @@ def register():
         db.commit()
         db.close()
         flash('Account created successfully! Please login.')
-        return redirect(url_for('login'))
+        return redirect(url_for('index'))
 
-    return render_template('register.html')
+    return render_template('index.html', csrf_token=generate_csrf())
 
 @app.route('/logout', methods=['POST'])
 def logout():
@@ -140,7 +190,7 @@ def set_income():
     user_id = session.get('user_id')
     if not user_id:
         flash('Please log in to continue.', 'error')
-        return redirect(url_for('login'))
+        return redirect(url_for('index'))
 
     try:
         income = float(request.form['income'])  # Using direct access to ensure a value is provided
@@ -165,7 +215,7 @@ def set_income():
     finally:
         db.close()
 
-    return redirect(url_for('index'))
+    return redirect(url_for('view_budget'))
 
 @app.route('/generate_spreadsheet')
 def generate_spreadsheet():
@@ -173,7 +223,7 @@ def generate_spreadsheet():
         user_id = session.get('user_id')
         if not user_id:
             flash('User not logged in.')
-            return redirect(url_for('login'))
+            return redirect(url_for('/'))
 
         db = get_db()
         cursor = db.cursor()
@@ -217,7 +267,7 @@ def generate_report():
         user_id = session.get('user_id')
         if not user_id:
             flash('User not logged in.')
-            return redirect(url_for('login'))
+            return redirect(url_for('/'))
 
         db = get_db()
         cursor = db.cursor()
@@ -257,60 +307,13 @@ def generate_report():
 
 
 
-@app.route('/view_budget')
-def view_budget():
-    user_id = session.get('user_id')  # Checking if user_id is stored in the session upon login
-    
-    if not user_id:  # If no user_id, then user is not logged in
-        flash('User not logged in.')
-        return redirect(url_for('login'))
-
-    db = get_db()
-    cursor = db.cursor()
-
-    try:
-        # Fetch the latest income for the user
-        cursor.execute('SELECT amount FROM income WHERE user_id = ? ORDER BY date DESC LIMIT 1', (user_id,))
-        income_row = cursor.fetchone()
-        income = income_row['amount'] if income_row else 0.0
-
-        # Fetch the total expenses for the user
-        cursor.execute('SELECT SUM(amount) AS total_expenses FROM expenses WHERE user_id = ?', (user_id,))
-        expenses_row = cursor.fetchone()
-        expenses = expenses_row['total_expenses'] if expenses_row else 0.0
-
-        # Calculate the overall balance
-        balance = income - expenses
-
-        # Calculate the expense ratio and determine the grade
-        expense_ratio = (expenses / income * 100) if income > 0 else 0
-
-        # Define the grading logic
-        grade = calculate_grade(expense_ratio)
-
-        # Prepare the budget data for rendering
-        budget_data = {
-            'income': income,
-            'expenses': expenses,
-            'balance': balance,
-            'grade': grade,
-            'expense_ratio': expense_ratio  # Include the expense ratio if needed in the UI
-        }
-
-        return render_template('view_budget.html', budget=budget_data)
-    except Exception as e:
-        flash(f"An error occurred: {str(e)}", 'error')
-        return redirect(url_for('index'))
-    finally:
-        cursor.close()
-        db.close()
 
 @app.route('/budget_analysis')
 def budget_analysis():
     user_id = session.get('user_id')
     if not user_id:
         flash('User not logged in.')
-        return redirect(url_for('login'))
+        return redirect(url_for('index'))
 
     db = get_db()
     cursor = db.cursor()
@@ -379,7 +382,8 @@ def budget_analysis():
         cursor.close()
         db.close()
 
-    return render_template('budget_analysis.html', last_updated_date=last_updated_date, budget=budget_data, expenses=expenses, analysis=analysis, max_expense=max_expense)
+    return render_template('budget_analysis.html', last_updated_date=last_updated_date, budget=budget_data, expenses=expenses, analysis=analysis, max_expense=max_expense, csrf_token=generate_csrf())
+
 import io
 from flask import send_file
 
@@ -388,7 +392,7 @@ def histogram():
     user_id = session.get('user_id')
     if not user_id:
         flash('User not logged in.')
-        return redirect(url_for('login'))
+        return redirect(url_for('/'))
 
     db = get_db()
     cursor = db.cursor()
@@ -418,7 +422,7 @@ def piechart():
     user_id = session.get('user_id')
     if not user_id:
         flash('User not logged in.')
-        return redirect(url_for('login'))
+        return redirect(url_for('/'))
 
     db = get_db()
     cursor = db.cursor()
@@ -460,7 +464,7 @@ def manage_expenses():
     user_id = session.get('user_id')
     if not user_id:
         flash('User not logged in.')
-        return redirect(url_for('login'))
+        return redirect(url_for('/'))
 
     db = get_db()
     cursor = db.cursor()
@@ -503,7 +507,7 @@ def save_expenses():
     user_id = session.get('user_id')
     if not user_id:
         flash('User not logged in. Please login to continue.', 'error')
-        return redirect(url_for('login'))
+        return redirect(url_for('/'))
 
     try:
         db = get_db()
@@ -629,6 +633,74 @@ def get_analysis(income, expenses, max_expense, total_expenses, avg_expense, std
 
     return analysis_message
 
+@app.route('/income_scatter')
+def income_scatter():
+    user_id = session.get('user_id')
+    if not user_id:
+        flash('User not logged in.')
+        return redirect(url_for('index'))
+
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute('SELECT date, amount FROM income WHERE user_id = ?', (user_id,))
+        incomes = cursor.fetchall()
+
+        if not incomes:
+            flash('No income data found for the user.')
+            return redirect(url_for('dashboard'))
+
+        scatter_plot = ScatterPlot()
+        for date, amount in incomes:
+            scatter_plot.add_income(date, amount)
+        
+        buf_scat = io.BytesIO()
+        fig = scatter_plot.plot()
+        plt.savefig(buf_scat, format='png', bbox_inches='tight')
+        plt.close()
+        buf_scat.seek(0)
+        return send_file(buf_scat, mimetype='image/png')
+    except Exception as e:
+        flash(f"Error generating income scatter plot: {str(e)}")
+        return redirect(url_for('dashboard'))
+    finally:
+        cursor.close()
+        db.close()
+
+
+@app.route('/expenses_line_chart')
+def expenses_line_chart():
+    user_id = session.get('user_id')
+    if not user_id:
+        flash('User not logged in.')
+        return redirect(url_for('index'))
+
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute('SELECT date, amount FROM expenses WHERE user_id = ?', (user_id,))
+        expenses = cursor.fetchall()
+
+        if not expenses:
+            flash('No expenses found for the user.')
+            return redirect(url_for('dashboard'))
+
+        line_chart = LineChart()
+        for date, amount in expenses:
+            line_chart.add_expense(date, amount)
+
+        buf_line = io.BytesIO()
+        line_chart.plot()
+        plt.savefig(buf_line, format='png', bbox_inches='tight')
+        plt.close()
+        buf_line.seek(0)
+        return send_file(buf_line, mimetype='image/png')
+    except Exception as e:
+        flash(f"Error generating expense line chart: {str(e)}")
+        return redirect(url_for('dashboard'))
+    finally:
+        cursor.close()
+        db.close()
 
         
 if __name__ == '__main__':

@@ -36,8 +36,3 @@ class LineChart:
         plt.show()
 
 # Example usage
-chart = LineChart()
-chart.add_expense('2024-01-01', 100)
-chart.add_expense('2024-02-15', 150)
-chart.add_expense('2024-03-10', 200)
-chart.plot()

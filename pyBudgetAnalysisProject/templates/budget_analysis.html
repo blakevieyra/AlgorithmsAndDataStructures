@@ -16,34 +16,83 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="/">Home</a>
+                        <a class="nav-link active" href="/">Home</a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/view_budget">Overall Health</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/manage_expenses">Manage Expenses</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/budget_analysis">Budget Analysis</a>
-                    </li>
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="accountDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            Account
-                        </a>
-                        <ul class="dropdown-menu" aria-labelledby="accountDropdown">
-                            <form action="{{ url_for('logout') }}" method="post">
-                                <button type="submit" class="dropdown-item">Logout</button>
-                            </form>
-                            <div class="dropdown-divider"></div>
-                            <a class="dropdown-item" href="/login">Sign in</a>
-                            <a class="dropdown-item" href="/register">Sign up</a>
-                        </ul>
-                    </li>
+                    <!-- other navigation items can be added here -->
                 </ul>
+                <!-- Conditional display based on user authentication -->
+                {% if not user %}
+                <button class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#loginModal">
+                    Login
+                </button>
+                <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#registerModal">
+                    Register
+                </button>
+                {% else %}
+                <form action="{{ url_for('logout') }}" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn btn-outline-danger">Logout</button>
+                </form>
+                {% endif %}
             </div>
         </div>
     </nav>
+
+    <!-- Login Modal -->
+    <div class="modal fade" id="loginModal" tabindex="-1" aria-labelledby="loginModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="loginModalLabel">Login</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form action="/login" method="post">
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Username</label>
+                            <input type="text" class="form-control" id="username" name="username" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Password</label>
+                            <input type="password" class="form-control" id="password" name="password" required>
+                        </div>
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="btn btn-primary">Login</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Register Modal -->
+    <div class="modal fade" id="registerModal" tabindex="-1" aria-labelledby="registerModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="registerModalLabel">Register</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form action="/register" method="post">
+                        <div class="mb-3">
+                            <label for="reg_username" class="form-label">Username</label>
+                            <input type="text" class="form-control" id="reg_username" name="username" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="reg_password" class="form-label">Password</label>
+                            <input type="password" class="form-control" id="reg_password" name="password" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="reg_email" class="form-label">Email</label>
+                            <input type="email" class="form-control" id="reg_email" name="email" required>
+                        </div>
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="btn btn-primary">Register</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <div class="container mt-5" id="downloadable-data">
         <h1 class="mb-3">Complete Budget Analysis</h1>
@@ -97,7 +146,7 @@
 
 <div class="card mt-4" id="downloadable-card">
     <div class="card-body">
-        <h2 class="card-title">Recommendations</h2>
+        <h2 class="card-title text-center mb-4" style="font-size: 2rem;">Recommendations</h2>
         <div class="row mt-3">
             <div class="col-md-6 mx-auto">
                 <ul class="list-unstyled">
@@ -110,6 +159,11 @@
                     </li>
                     {% endfor %}
                 </ul>
+            </div>
+        </div>
+        <div class="row mt-3 justify-content-center">
+            <div class="col-md-8">
+                <img src="/expenses_line_chart" alt="Line Chart of Expenses over Time" class="img-fluid chart-img mx-auto d-block">
             </div>
         </div>
         <div class="row mt-3">
@@ -126,10 +180,10 @@
         </div>
         <div class="row mt-3">
             <div class="col-md-6">
-                <img src="/histogram" alt="Histogram of Expenses" class="img-fluid chart-img">
+                <img src="/histogram" alt="Histogram of Expenses" class="img-fluid chart-img mx-auto d-block">
             </div>
             <div class="col-md-6">
-                <img src="/piechart" alt="Pie Chart of Expenses" class="img-fluid chart-img">
+                <img src="/piechart" alt="Pie Chart of Expenses" class="img-fluid chart-img mx-auto d-block">
             </div>
         </div>
     </div>

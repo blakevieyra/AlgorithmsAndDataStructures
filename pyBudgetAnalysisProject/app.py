@@ -1,3 +1,4 @@
+import os
 from flask import Flask, render_template, request, redirect, url_for, flash, session, g
 from flask import send_file, make_response
 import sqlite3
@@ -10,9 +11,12 @@ from main import Main
 from piechart import Piechart
 from datetime import datetime
 import matplotlib
-from main import run_statistics, write_to_csv
+from statistics import mean, stdev
+import logging
 
-matplotlib.use('Agg')  # Use a non-GUI backend to prevent chart popups
+logging.basicConfig(level=logging.INFO)
+
+matplotlib.use('Agg')  
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
@@ -50,7 +54,7 @@ def login():
             if income:
                 session['income'] = income['amount']
                 
-            return redirect(url_for('manage_expenses'))
+            return redirect(url_for('view_budget'))
         else:
             flash('Invalid username or password.', 'error')
     return render_template('login.html')
@@ -139,37 +143,29 @@ def set_income():
         return redirect(url_for('login'))
 
     try:
-        income = float(request.form.get('income', 0))  # Default to 0 if not provided
+        income = float(request.form['income'])  # Using direct access to ensure a value is provided
         if income <= 0:
             raise ValueError("Income must be a positive number.")
 
         db = get_db()
         cursor = db.cursor()
+
+        # Insert or update the latest income
         current_date = datetime.now().strftime('%Y-%m-%d')
-        # Consider using an UPDATE statement if only keeping track of the latest income
         cursor.execute('''
-            INSERT INTO income (user_id, date, amount)
-            VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET amount = excluded.amount;
+            INSERT INTO income (date, amount, user_id)
+            VALUES (?, ?, ?)
         ''', (user_id, current_date, income))
         db.commit()
         flash('Income updated successfully!', 'success')
     except ValueError as e:
         flash(str(e), 'error')
     except Exception as e:
-        flash('Failed to update income due to a system error.', 'error')
+        flash('Failed to update income due to a system error: ' + str(e), 'error')
     finally:
-        if db:
-            db.close()
+        db.close()
 
     return redirect(url_for('index'))
-
-@app.route('/download')
-def download_file():
-    content = "Some content"
-    response = make_response(content)
-    response.headers['Content-Disposition'] = 'attachment; filename=filename.txt'
-    response.mimetype = 'text/plain'
-    return response
 
 @app.route('/generate_spreadsheet')
 def generate_spreadsheet():
@@ -186,8 +182,19 @@ def generate_spreadsheet():
         cursor.execute('SELECT category, amount FROM expenses WHERE user_id = ?', (user_id,))
         expenses_data = cursor.fetchall()
 
+        # Get the latest income for the user
+        cursor.execute('SELECT amount FROM income WHERE user_id = ? ORDER BY date DESC LIMIT 1', (user_id,))
+        income_data = cursor.fetchone()
+        income = income_data['amount'] if income_data else 0
+
+        # Calculate total expenses
+        total_expenses = sum(expense['amount'] for expense in expenses_data)
+
         # Generate the CSV content
-        csv_content = "Category,Amount\n"
+        csv_content = "Report Date,{}\n".format(datetime.now().strftime('%Y-%m-%d'))
+        csv_content += "Income,{}\n".format(income)
+        csv_content += "Total Expenses,{}\n".format(total_expenses)
+        csv_content += "Category,Amount\n"
         for expense in expenses_data:
             csv_content += f"{expense['category']},{expense['amount']}\n"
 
@@ -204,6 +211,177 @@ def generate_spreadsheet():
         flash(f"Error generating spreadsheet: {str(e)}")
         return redirect(url_for('index'))
     
+@app.route('/generate_report')
+def generate_report():
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            flash('User not logged in.')
+            return redirect(url_for('login'))
+
+        db = get_db()
+        cursor = db.cursor()
+
+        # Retrieve expenses data from the database using the user ID
+        cursor.execute('SELECT category, amount FROM expenses WHERE user_id = ?', (user_id,))
+        expenses_data = cursor.fetchall()
+
+        # Get the latest income for the user
+        cursor.execute('SELECT amount FROM income WHERE user_id = ? ORDER BY date DESC LIMIT 1', (user_id,))
+        income_data = cursor.fetchone()
+        income = income_data['amount'] if income_data else 0
+
+        # Calculate total expenses
+        total_expenses = sum(expense['amount'] for expense in expenses_data)
+
+        # Generate the CSV content
+        csv_content = "Report Date,{}\n".format(datetime.now().strftime('%Y-%m-%d'))
+        csv_content += "Income,{}\n".format(income)
+        csv_content += "Total Expenses,{}\n".format(total_expenses)
+        csv_content += "Category,Amount\n"
+        for expense in expenses_data:
+            csv_content += f"{expense['category']},{expense['amount']}\n"
+
+        # Close the database connection
+        cursor.close()
+        db.close()
+
+        # Send the generated CSV file as a response
+        response = make_response(csv_content)
+        response.headers['Content-Disposition'] = 'attachment; filename=spendingtracker.csv'
+        response.mimetype = 'text/csv'
+        return response
+    except Exception as e:
+        flash(f"Error generating spreadsheet: {str(e)}")
+        return redirect(url_for('index'))
+
+
+
+@app.route('/view_budget')
+def view_budget():
+    user_id = session.get('user_id')  # Checking if user_id is stored in the session upon login
+    
+    if not user_id:  # If no user_id, then user is not logged in
+        flash('User not logged in.')
+        return redirect(url_for('login'))
+
+    db = get_db()
+    cursor = db.cursor()
+
+    try:
+        # Fetch the latest income for the user
+        cursor.execute('SELECT amount FROM income WHERE user_id = ? ORDER BY date DESC LIMIT 1', (user_id,))
+        income_row = cursor.fetchone()
+        income = income_row['amount'] if income_row else 0.0
+
+        # Fetch the total expenses for the user
+        cursor.execute('SELECT SUM(amount) AS total_expenses FROM expenses WHERE user_id = ?', (user_id,))
+        expenses_row = cursor.fetchone()
+        expenses = expenses_row['total_expenses'] if expenses_row else 0.0
+
+        # Calculate the overall balance
+        balance = income - expenses
+
+        # Calculate the expense ratio and determine the grade
+        expense_ratio = (expenses / income * 100) if income > 0 else 0
+
+        # Define the grading logic
+        grade = calculate_grade(expense_ratio)
+
+        # Prepare the budget data for rendering
+        budget_data = {
+            'income': income,
+            'expenses': expenses,
+            'balance': balance,
+            'grade': grade,
+            'expense_ratio': expense_ratio  # Include the expense ratio if needed in the UI
+        }
+
+        return render_template('view_budget.html', budget=budget_data)
+    except Exception as e:
+        flash(f"An error occurred: {str(e)}", 'error')
+        return redirect(url_for('index'))
+    finally:
+        cursor.close()
+        db.close()
+
+@app.route('/budget_analysis')
+def budget_analysis():
+    user_id = session.get('user_id')
+    if not user_id:
+        flash('User not logged in.')
+        return redirect(url_for('login'))
+
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute('SELECT amount FROM income WHERE user_id = ? ORDER BY date DESC LIMIT 1', (user_id,))
+        income_result = cursor.fetchone()
+        income = income_result['amount'] if income_result else 0
+
+        cursor.execute('SELECT SUM(amount) AS total_expenses FROM expenses WHERE user_id = ?', (user_id,))
+        expenses_row = cursor.fetchone()
+        total_expenses = expenses_row['total_expenses'] if expenses_row else 0
+
+        if not expenses_row:
+            logging.error("No expenses data found for user: %s", user_id)
+            flash("No expense data found.")
+            return redirect(url_for('budget_analysis'))
+        
+        balance = income - total_expenses
+        last_updated_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        cursor.execute('SELECT category, amount FROM expenses WHERE user_id = ? AND amount > 0 ORDER BY amount DESC', (user_id,))
+        expenses = [{'category': row['category'], 'amount': row['amount']} for row in cursor.fetchall()]
+        
+        if expenses:
+            highest_cat = expenses[0]  # The first item is the highest because of ORDER BY amount DESC
+            lowest_cat= expenses[-1]  # The last item is the lowest
+            amounts = [expense['amount'] for expense in expenses]
+            highest = max(amounts) if amounts else 0
+            lowest = min(amounts) if amounts else 0
+            average = mean(amounts)
+            std_dev = stdev(amounts) if len(amounts) > 1 else 0
+            cv = (std_dev / average * 100) if average else 0
+        else:
+            highest = lowest = {'category': 'None', 'amount': 0}
+            average = std_dev = 0
+
+
+        expense_ratio = (total_expenses / income * 100) if income else 0
+        grade = calculate_grade(expense_ratio)  # Assuming calculate_grade is a function that returns a grade based on the ratio
+        analysis = get_analysis(income, expenses, highest, total_expenses, average, std_dev, cv, expense_ratio)
+        print(analysis)
+
+        max_expense = max(expense['amount'] for expense in expenses) if expenses else 1  # Avoid division by zero
+        budget_data = {
+            'income': income,
+            'expenses': expenses,
+            'balance': balance,
+            'grade': grade,
+            'highest_cat': highest_cat,
+            'lowest_cat': lowest_cat,
+            'highest': highest,
+            'lowest': lowest,
+            'average': average,
+            'standard_deviation': std_dev,
+            'expense_ratio': expense_ratio,
+            'total_expenses': total_expenses
+        }
+
+    except Exception as e:
+        logging.exception("Failed to fetch financial data: %s", e)
+        flash(f"Error during analysis: {e}")
+        return redirect(url_for('budget_analysis'))
+
+
+    finally:
+        cursor.close()
+        db.close()
+
+    return render_template('budget_analysis.html', last_updated_date=last_updated_date, budget=budget_data, expenses=expenses, analysis=analysis, max_expense=max_expense)
+import io
+from flask import send_file
 
 @app.route('/histogram')
 def histogram():
@@ -214,20 +392,18 @@ def histogram():
 
     db = get_db()
     cursor = db.cursor()
-
     try:
-        # Retrieve expenses for the user from the database
         cursor.execute('SELECT category, amount FROM expenses WHERE user_id = ?', (user_id,))
         expenses = cursor.fetchall()
-
         if not expenses:
             flash('No expenses found for the user.')
             return redirect(url_for('budget_analysis'))
 
+        hist = Histogram(expenses)
+        fig = hist.display_histogram()
         buf = io.BytesIO()
-        Histogram(expenses).display_histogram()
-        plt.savefig(buf, format='png', bbox_inches='tight')
-        plt.close()
+        fig.savefig(buf, format='png')
+        plt.close(fig)
         buf.seek(0)
         return send_file(buf, mimetype='image/png', as_attachment=False)
     except Exception as e:
@@ -246,9 +422,7 @@ def piechart():
 
     db = get_db()
     cursor = db.cursor()
-
     try:
-        # Retrieve expenses for the user from the database
         cursor.execute('SELECT category, amount FROM expenses WHERE user_id = ?', (user_id,))
         expenses = cursor.fetchall()
 
@@ -256,12 +430,13 @@ def piechart():
             flash('No expenses found for the user.')
             return redirect(url_for('budget_analysis'))
 
-        buf = io.BytesIO()
-        Piechart(expenses).display_pie_chart()
-        plt.savefig(buf, format='png')
-        plt.close()
-        buf.seek(0)
-        return send_file(buf, mimetype='image/png', as_attachment=False)
+        piechart = Piechart(expenses)
+        fig = piechart.display_pie_chart()
+        buf_pie = io.BytesIO()
+        fig.savefig(buf_pie, format='png')
+        plt.close(fig)
+        buf_pie.seek(0)
+        return send_file(buf_pie, mimetype='image/png')
     except Exception as e:
         flash(f"Error generating pie chart: {str(e)}")
         return redirect(url_for('budget_analysis'))
@@ -269,111 +444,16 @@ def piechart():
         cursor.close()
         db.close()
 
-@app.route('/budget_analysis')
-def budget_analysis():
-    user_id = session.get('user_id')
-    if not user_id:
-        flash('User not logged in.')
-        return redirect(url_for('login'))
+        
+def calculate_grade(ratio):
+    if ratio <= 50: return 'A+'
+    elif ratio <= 70: return 'A'
+    elif ratio <= 90: return 'A-'
+    elif ratio <= 110: return 'B'
+    elif ratio <= 130: return 'C'
+    elif ratio <= 150: return 'D'
+    else: return 'F-'
 
-    db = get_db()
-    cursor = db.cursor()
-
-    budget_data = {'income': 0, 'expenses': 0}  # Default empty data
-    expenses = []
-    balance = 0
-    analysis_results = []
-
-    try:
-        cursor.execute('SELECT income, expenses FROM budget WHERE user_id = ?', (user_id,))
-        budget = cursor.fetchone()
-
-        if budget:
-            budget_data = budget
-            balance = budget['income'] - budget['expenses']
-
-        cursor.execute('SELECT category, amount FROM expenses WHERE user_id = ? ORDER BY amount DESC', (user_id,))
-        expenses = cursor.fetchall()
-
-        # Here you should handle if no analysis results exist:
-        analysis_results = run_statistics() if run_statistics() else ["No detailed analysis data available."]
-
-    except Exception as e:
-        flash(f"Error during analysis: {e}")
-
-    finally:
-        cursor.close()
-        db.close()
-
-    return render_template('budget_analysis.html', budget=budget_data, balance=balance, expenses=expenses, analysis=analysis_results)
-
-@app.route('/view_budget')
-def view_budget():
-    user_id = session.get('user_id')  # Assuming user_id is stored in the session upon login
-    
-    if user_id:
-        db = get_db()
-        cursor = db.cursor()
-
-        # Fetch the latest income for the user
-        cursor.execute('SELECT amount FROM income WHERE user_id = ? ORDER BY date DESC LIMIT 1', (user_id,))
-        income_row = cursor.fetchone()
-        income = income_row['amount'] if income_row else 0.0
-
-        # Fetch the total expenses for the user
-        cursor.execute('SELECT SUM(amount) AS total_expenses FROM expenses WHERE user_id = ?', (user_id,))
-        expenses_row = cursor.fetchone()
-        expenses = expenses_row['total_expenses'] if expenses_row else 0.0
-
-        db.close()
-
-        # Calculate the overall balance
-        balance = income - expenses
-
-        # Calculate the expense ratio and determine the grade
-        if income > 0:
-            expense_ratio = (expenses / income) * 100
-        else:
-            expense_ratio = 0  # Avoid division by zero
-
-        # Define the grading logic
-        if expense_ratio <= 50:
-            grade = 'A+'
-        elif expense_ratio <= 70:
-            grade = 'A'
-        elif expense_ratio <= 90:
-            grade = 'A-'
-        elif expense_ratio <= 110:
-            grade = 'B'
-        elif expense_ratio <= 130:
-            grade = 'C'
-        elif expense_ratio <= 150:
-            grade = 'D'
-        else:
-            grade = 'F-'
-
-        # Include grade in the budget data dictionary
-        budget_data = {
-            'income': income,
-            'expenses': expenses,
-            'balance': balance,
-            'grade': grade  # Include the grade in the budget data sent to the template
-        }
-
-        return render_template('view_budget.html', budget=budget_data)
-    else:
-        flash('User not logged in.')
-        return redirect(url_for('login'))
-
-@app.route('/generate_report')
-def generate_report():
-    try:
-        report_filename = 'budget_analysis.txt'
-        main_app.write_analysis_to_file(report_filename)
-        return send_file(report_filename, as_attachment=True)
-    except Exception as e:
-        flash(f"Error generating report: {e}")
-        return redirect(url_for('index'))
 
 @app.route('/manage_expenses', methods=['GET', 'POST'])
 def manage_expenses():
@@ -385,44 +465,38 @@ def manage_expenses():
     db = get_db()
     cursor = db.cursor()
 
-    # Fetch existing expenses to display and potentially update
-    cursor.execute('SELECT category, amount FROM expenses WHERE user_id = ?', (user_id,))
-    categories_with_amounts = {row['category']: row['amount'] for row in cursor.fetchall()}
-
     if request.method == 'POST':
-        # Get data from the form
         categories_post = request.form.getlist('categories[]')
         amounts_post = request.form.getlist('amounts[]')
-
-        # Convert amounts to float and prepare data for insertion or update
         try:
-            updated_data = [(user_id, category, float(amount)) for category, amount in zip(categories_post, amounts_post)]
-            for data in updated_data:
-                cursor.execute('''
-                    INSERT INTO expenses (user_id, category, amount)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(user_id, category)
-                    DO UPDATE SET amount = excluded.amount;
-                ''', data)
+            updated_data = [(float(amount), user_id, category) for category, amount in zip(categories_post, amounts_post)]
+            cursor.executemany('''
+                UPDATE expenses SET amount = ?
+                WHERE user_id = ? AND category = ?
+            ''', updated_data)
             db.commit()
-            update_budget(user_id)
             flash('Expenses updated successfully!')
-            # Update the local dictionary to reflect the new amounts immediately after saving
-            categories_with_amounts = {data[1]: data[2] for data in updated_data}
         except Exception as e:
             db.rollback()
             flash(f"An error occurred while updating expenses: {e}")
-
-        # Redirect to clear POST data and refresh the page
+        finally:
+            cursor.close()
+            db.close()
         return redirect(url_for('manage_expenses'))
 
-    # Calculate total expenses for display
-    total_expenses = sum(categories_with_amounts.values())
+    # Fetch existing expenses to display in the form
+    cursor.execute('SELECT category, amount FROM expenses WHERE user_id = ?', (user_id,))
+    categories_with_amounts = cursor.fetchall()
+    total_expenses = sum(amount for _, amount in categories_with_amounts)  # Calculate total expenses
+    last_updated_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     cursor.close()
     db.close()
 
-    return render_template('manage_expenses.html', categories=categories_with_amounts, total_expenses=total_expenses)
+    return render_template('manage_expenses.html', categories=categories_with_amounts, total_expenses=total_expenses, last_updated_date=last_updated_date)
+
+
+
 
 @app.route('/save_expenses', methods=['POST'])
 def save_expenses():
@@ -488,6 +562,74 @@ def update_budget(user_id):
     finally:
         cursor.close()
         db.close()
+        
+def get_analysis(income, expenses, max_expense, total_expenses, avg_expense, std_deviation, cv, expense_ratio):
+    logging.info("Starting analysis with provided data")
+
+    if not expenses:
+        return ["No recorded expenses to analyze."]
+    if income <= 0:
+        return ["No recorded income, making expense comparison impossible."]
+
+    analysis_message = []
+
+    # Analyzing Expense Ratio and Providing Recommendations
+    if expense_ratio > 70:
+        analysis_message.extend([
+            "Your expense ratio is quite high, indicating you're spending a large portion of your income. This can cause financial strain. To improve:",
+            "- **Budget Review:** Go through your monthly expenses to cut down non-essential spending.",
+            "- **Debt Management:** Prioritize paying off high-interest debts to reduce financial burden.",
+            "- **Savings Plan:** Adjust your budget to save more consistently, ideally more than 20% of your income."
+        ])
+    elif expense_ratio > 50:
+        analysis_message.extend([
+            "Your expense ratio is moderate but could be better. To enhance your financial health:",
+            "- **Negotiate Bills:** Explore cheaper alternatives for regular expenses like utilities and subscriptions.",
+            "- **Increase Income:** Consider side gigs to boost your income.",
+            "- **Track Spending:** Use budgeting apps to manage and possibly reduce your expenses."
+        ])
+    else:
+        analysis_message.append(
+            "You have a healthy expense ratio. Maintain this by:",
+            "- **Regular Budget Audits:** Keep checking your budget for adjustments.",
+            "- **Emergency Fund:** Aim to cover 3-6 months of expenses to protect against unexpected financial shocks.",
+            "- **Investment:** Grow your savings by investing wisely."
+        )
+
+    # Handling Maximum Expenses
+    if max_expense > 0.4 * income:
+        analysis_message.append(
+            f"Your largest expense accounts for over 40% of your income, which might risk financial stability. Consider whether this high expense is essential or if there are ways to reduce it."
+        )
+
+    # Insights on Variability and Financial Stability
+    if cv > 50:
+        analysis_message.append(
+            "There's high variability in your expenses indicating unpredictable financial behavior, which can be risky. Aim to stabilize your expenses by planning and adhering to a strict budget."
+        )
+    if std_deviation > 0.5 * avg_expense:
+        analysis_message.append(
+            "Your expenses vary significantly from month to month. Identifying and managing large, irregular expenses can help stabilize your financial situation."
+        )
+
+    # Detailed Category Insights
+    for expense in expenses:
+        category, amount = expense['category'], expense['amount']
+        percentage_of_total = (amount / total_expenses * 100) if total_expenses > 0 else 0
+        percentage_of_income = (amount / income * 100) if income > 0 else 0
+
+        if percentage_of_total > 15:
+            analysis_message.append(
+                f"Consider reviewing {category} expenses, as they constitute a large portion of your budget ({percentage_of_total:.2f}%). There may be opportunities to reduce these costs."
+            )
+        if percentage_of_income > 10:
+            analysis_message.append(
+                f"Alert: {category} expenses take up more than 10% of your income. Evaluating and possibly reducing these expenses can improve your financial health."
+            )
+
+    return analysis_message
+
+
         
 if __name__ == '__main__':
     app.run(debug=True)

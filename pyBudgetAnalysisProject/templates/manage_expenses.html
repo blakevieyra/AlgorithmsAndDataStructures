@@ -80,27 +80,35 @@
         </div>
     </nav>
     <div class="container mt-5">
-        <h1>Manage Your Expenses</h1>
-        <form action="/manage_expenses" method="post" class="expense-form">
-            <div class="row">
-                {% for category, amount in categories.items() %}
-                <div class="col-md-6">
-                    <div class="form-group row">
-                        <div class="col-6">
-                            <input type="text" name="categories[]" class="form-control" id="category{{ loop.index }}" placeholder="Category" value="{{ category }}">
-                        </div>
-                        <div class="col-6 amount-slide">
-                            <input type="number" name="amounts[]" class="form-control" id="amount{{ loop.index }}" placeholder="Amount" step="0.01" value="{{ amount }}">
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-            <div class="save-button-container">
-                <button type="submit" class="btn btn-primary">Save Changes</button>
-            </div>
-        </form>
-        <div class="total-expenses-container">
+<h1>Manage Your Expenses <small id="last-updated" style="font-size: smaller; color: gray;">Last updated: {{ last_updated_date }}</small></h1>
+        <div class="scrollable-container">
+        <form method="POST">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Category</th>
+                <th>Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for category, amount in categories %}
+            <tr>
+                <td>{{ category }}</td>
+                <td>
+                    <input type="number" name="amounts[]" value="{{ amount }}" class="form-control">
+                    <input type="hidden" name="categories[]" value="{{ category }}">
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <div>
+        </div
+        <strong>Total Expenses: </strong> ${{ total_expenses }}
+    </div>
+    <button type="submit" class="btn btn-primary">Update Expenses</button>
+</form>
+        <div class="total-expenses-container footer">
             <h2>Total Expenses:</h2>
             <h1 id="total_expenses" class="rolling">$ {{ "%.2f"|format(total_expenses) }}</h1>
         </div>
@@ -124,9 +132,9 @@ document.addEventListener('DOMContentLoaded', function() {
         item.addEventListener('input', updateTotal);
     });
 
-    document.getElementById('total_expenses').addEventListener('animationend', () => {
-        this.classList.remove('rolling');
-    });
+   // document.getElementById('total_expenses').addEventListener('animationend', () => {
+        //this.classList.remove('rolling');
+   // });
 
     updateTotal();  // Initial calculation on page load
 });
